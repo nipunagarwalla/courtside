@@ -18,7 +18,8 @@ async def list_rankings(
             SELECT MAX(week_date) AS week_date FROM rankings WHERE ranking_type = :type
         )
         SELECT cur.rank, cur.player_id, p.name, p.country, cur.points,
-               prev.rank - cur.rank AS movement
+               prev.rank - cur.rank AS movement,
+               cur.week_date, p.ytd_wins
         FROM rankings cur
         JOIN latest ON cur.week_date = latest.week_date
         JOIN players p ON p.id = cur.player_id
