@@ -137,10 +137,47 @@ export interface MatchDetail extends Match {
   loser_ranking_points: number | null;
 }
 
+export interface PointRow {
+  point_number: number;
+  server: number | null;
+  score_before: string | null;
+  score_after: string | null;
+  p1_games: number | null;
+  p2_games: number | null;
+  p1_sets: number | null;
+  p2_sets: number | null;
+  winner: number | null;
+  point_end_type: string | null;
+  serve_speed_kmh: number | null;
+  serve_type: string | null;
+  rally_length: number | null;
+  is_break_point: boolean;
+  is_set_point: boolean;
+  is_match_point: boolean;
+  is_game_winner: boolean;
+  winner_shot: string | null;
+  sentence: string | null;
+}
+
+export interface PointsGame {
+  game_number: number;
+  server: number | null;
+  winner: number | null;
+  points: PointRow[];
+}
+
+export interface PointsSet {
+  set_number: number;
+  p1_games: number;
+  p2_games: number;
+  games: PointsGame[];
+}
+
 export interface MatchPoints {
   match_id: string;
   has_data: boolean;
-  sets: { set_number: number; points: Record<string, unknown>[] }[];
+  sets: PointsSet[];
+  message?: string;
 }
 
 export interface H2HBucket {

@@ -1,11 +1,112 @@
 "use client";
 
 import Link from "next/link";
-import { use } from "react";
+import { use, useState } from "react";
 import useSWR from "swr";
-import { getMatch, getMatchPoints, type MatchDetail } from "@/lib/api";
+import {
+  getMatch,
+  getMatchPoints,
+  type MatchDetail,
+  type MatchPoints,
+} from "@/lib/api";
 import SurfaceBadge from "@/components/SurfaceBadge";
 import TierBadge from "@/components/TierBadge";
+
+type PointsState = "idle" | "loading" | "loaded" | "unavailable";
+
+function PointsSection({
+  matchId,
+  winnerName,
+  loserName,
+}: {
+  matchId: string;
+  winnerName: string | null;
+  loserName: string | null;
+}) {
+  const [pointsState, setPointsState] = useState<PointsState>("idle");
+  const [points, setPoints] = useState<MatchPoints | null>(null);
+
+  const loadPoints = async () => {
+    setPointsState("loading");
+    try {
+      const data = await getMatchPoints(matchId);
+      if (data.has_data) {
+        setPoints(data);
+        setPointsState("loaded");
+      } else {
+        setPointsState("unavailable");
+      }
+    } catch {
+      setPointsState("unavailable");
+    }
+  };
+
+  return (
+    <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+        Point-by-Point Replay
+      </h2>
+
+      {pointsState === "idle" && (
+        <div className="text-center">
+          <button
+            onClick={loadPoints}
+            className="rounded-lg bg-blue-600 px-6 py-2.5 font-semibold text-white transition-colors hover:bg-blue-500"
+          >
+            Load point-by-point replay
+          </button>
+        </div>
+      )}
+
+      {pointsState === "loading" && (
+        <div className="flex items-center justify-center gap-3 py-4 text-zinc-400">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-blue-500" />
+          Fetching point data… (first load may take a few seconds)
+        </div>
+      )}
+
+      {pointsState === "unavailable" && (
+        <p className="py-2 text-center text-zinc-400">
+          Point-by-point data not available for this match
+        </p>
+      )}
+
+      {pointsState === "loaded" && points && (
+        <div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-zinc-800 text-left text-xs uppercase tracking-wide text-zinc-400">
+                <th className="px-3 py-2">Set</th>
+                <th className="px-3 py-2 text-center">{winnerName ?? "P1"}</th>
+                <th className="px-3 py-2 text-center">{loserName ?? "P2"}</th>
+                <th className="px-3 py-2 text-right">Points</th>
+              </tr>
+            </thead>
+            <tbody>
+              {points.sets.map((s) => (
+                <tr key={s.set_number} className="border-b border-zinc-800 last:border-0">
+                  <td className="px-3 py-2 font-semibold">Set {s.set_number}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{s.p1_games}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{s.p2_games}</td>
+                  <td className="px-3 py-2 text-right text-zinc-400">
+                    {s.games.reduce((n, g) => n + g.points.length, 0)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-4 text-center text-sm text-zinc-500">
+            {points.sets.reduce(
+              (n, s) => n + s.games.reduce((m, g) => m + g.points.length, 0),
+              0
+            )}{" "}
+            points loaded — full replay UI coming in Prompt 7
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
 
 function pct(num: number | null, den: number | null): string {
   if (num == null || !den) return "—";
@@ -34,7 +135,6 @@ export default function MatchPage({
 }) {
   const { id } = use(params);
   const { data: match, error, isLoading } = useSWR(`match-${id}`, () => getMatch(id));
-  const { data: points } = useSWR(`match-points-${id}`, () => getMatchPoints(id));
 
   if (error)
     return (
@@ -120,11 +220,11 @@ export default function MatchPage({
         </table>
       </section>
 
-      {points && !points.has_data && (
-        <p className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center text-zinc-400">
-          Point-by-point replay coming soon
-        </p>
-      )}
+      <PointsSection
+        matchId={id}
+        winnerName={match.winner_name}
+        loserName={match.loser_name}
+      />
     </main>
   );
 }

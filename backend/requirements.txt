@@ -6,7 +6,7 @@ alembic
 pydantic
 pydantic-settings
 python-dotenv
-httpx
+httpx[http2]
 requests
 beautifulsoup4
 lxml
