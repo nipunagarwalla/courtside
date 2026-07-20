@@ -279,3 +279,26 @@ export const getMatchPoints = (id: string) =>
 
 export const getCompare = (p1: string, p2: string) =>
   get<CompareResult>(`/api/compare?p1=${encodeURIComponent(p1)}&p2=${encodeURIComponent(p2)}`);
+
+export interface LiveScore {
+  score_after: string | null;
+  p1_games: number | null;
+  p2_games: number | null;
+  p1_sets: number | null;
+  p2_sets: number | null;
+  server: number | null;
+}
+
+export interface LiveMatch {
+  match_id: string;
+  tournament: string | null;
+  round: string | null;
+  surface: string | null;
+  p1_name: string;
+  p2_name: string;
+  score: LiveScore | null;
+}
+
+export const getLive = () => get<LiveMatch[]>("/api/live");
+
+export const API_URL = API;

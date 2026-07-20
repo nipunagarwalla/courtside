@@ -49,6 +49,43 @@ def needs_swap(match_beats: dict, winner_id: str) -> bool:
     return t2 == winner_id.upper()
 
 
+def compute_set_and_match_point(
+    p1_score: str, p2_score: str,
+    p1_games: int, p2_games: int,
+    p1_sets: int, p2_sets: int,
+    total_sets_needed: int,
+    is_tiebreak: bool = False,
+) -> tuple[bool, bool]:
+    """Compute set/match point from the score BEFORE a point is played.
+
+    A point is a set point when the leading player is one point from taking
+    the set; a match point when taking that set would win the match
+    (total_sets_needed = 2 for best-of-3, 3 for best-of-5).
+    """
+    if is_tiebreak:
+        # Tiebreak scores are numeric; set point at >=6 with a lead
+        try:
+            t1, t2 = int(p1_score), int(p2_score)
+        except (TypeError, ValueError):
+            return False, False
+        p1_at_sp = t1 >= 6 and t1 > t2
+        p2_at_sp = t2 >= 6 and t2 > t1
+    else:
+        # Game point: at 40 with opponent below 40, or at advantage
+        p1_at_gp = (p1_score == "40" and p2_score not in ("40", "AD")) or p1_score == "AD"
+        p2_at_gp = (p2_score == "40" and p1_score not in ("40", "AD")) or p2_score == "AD"
+        p1_at_sp = p1_at_gp and p1_games >= 5 and p1_games > p2_games
+        p2_at_sp = p2_at_gp and p2_games >= 5 and p2_games > p1_games
+
+    is_set_point = p1_at_sp or p2_at_sp
+    is_match_point = False
+    if p1_at_sp:
+        is_match_point = (p1_sets + 1) >= total_sets_needed
+    elif p2_at_sp:
+        is_match_point = (p2_sets + 1) >= total_sets_needed
+    return is_set_point, is_match_point
+
+
 def _player_names(match_beats: dict, swap: bool) -> dict[int, str]:
     pd = match_beats.get("playerData") or {}
     n1 = pd.get("tm1Ply1Name") or "Player 1"
@@ -58,7 +95,10 @@ def _player_names(match_beats: dict, swap: bool) -> dict[int, str]:
     return {1: n1, 2: n2}
 
 
-def parse_match_beats(match_beats: dict, our_match_id: str, swap: bool) -> list[dict]:
+def parse_match_beats(
+    match_beats: dict, our_match_id: str, swap: bool,
+    total_sets_needed: int = 2,
+) -> list[dict]:
     """Flatten setData -> gameData -> pointData into point_events rows."""
     names = _player_names(match_beats, swap)
     rows = []
@@ -70,6 +110,7 @@ def parse_match_beats(match_beats: dict, our_match_id: str, swap: bool) -> list[
 
         for game in set_data.get("gameData") or []:
             game_number = game.get("game")
+            is_tiebreak = bool(game.get("isTieBreak"))
             point_data = game.get("pointData") or []
             prev_score = "0-0"
 
@@ -90,6 +131,14 @@ def parse_match_beats(match_beats: dict, our_match_id: str, swap: bool) -> list[
                 if winner in names:
                     sentence = f"{names[winner]} wins the point ({end_type}) — {score_after}"
 
+                before_p1, _, before_p2 = prev_score.partition("-")
+                is_set_point, is_match_point = compute_set_and_match_point(
+                    before_p1, before_p2,
+                    games_won[1], games_won[2],
+                    sets_won[1], sets_won[2],
+                    total_sets_needed, is_tiebreak,
+                )
+
                 rows.append({
                     "match_id": our_match_id,
                     "set_number": set_number,
@@ -108,8 +157,8 @@ def parse_match_beats(match_beats: dict, our_match_id: str, swap: bool) -> list[
                     "serve_type": {1: "1st", 2: "2nd"}.get(p.get("serve")),
                     "rally_length": rally or None,
                     "is_break_point": bool(p.get("isBrkPt")),
-                    "is_set_point": bool(p.get("isCspPt")),
-                    "is_match_point": False,  # not directly exposed; see raw_data
+                    "is_set_point": is_set_point or bool(p.get("isCspPt")),
+                    "is_match_point": is_match_point,
                     "is_game_winner": is_last_point,
                     "winner_shot": stroke if stroke and stroke != "N" else None,
                     "sentence": sentence,

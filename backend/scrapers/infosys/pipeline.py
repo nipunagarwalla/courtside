@@ -90,9 +90,20 @@ async def find_infosys_match_id(
     return None
 
 
+async def _total_sets_needed(db, our_match_id: str) -> int:
+    """2 for best-of-3, 3 for best-of-5 (Grand Slams)."""
+    tier = (await db.execute(text("""
+        SELECT t.tier FROM matches m
+        JOIN tournaments t ON m.tournament_id = t.id
+        WHERE m.id = :mid
+    """), {"mid": our_match_id})).scalar()
+    return 3 if tier == "Grand Slam" else 2
+
+
 async def _store_points(db, match_beats: dict, our_match_id: str, winner_id: str) -> int:
     swap = needs_swap(match_beats, winner_id)
-    points = parse_match_beats(match_beats, our_match_id, swap)
+    total_sets_needed = await _total_sets_needed(db, our_match_id)
+    points = parse_match_beats(match_beats, our_match_id, swap, total_sets_needed)
     for i in range(0, len(points), 500):
         await db.execute(INSERT_POINT, points[i:i + 500])
     return len(points)

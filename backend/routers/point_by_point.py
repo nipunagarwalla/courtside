@@ -1,11 +1,40 @@
+import asyncio
+import json
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
+from live import broadcaster
 from scrapers.infosys.pipeline import scrape_match_on_demand
 
 router = APIRouter(prefix="/matches", tags=["point-by-point"])
+
+
+def _json_default(o):
+    return o.isoformat() if isinstance(o, date) else str(o)
+
+
+@router.get("/{match_id}/live-stream")
+async def live_stream(match_id: str):
+    """SSE stream of new points for a live match; keepalive every 30s."""
+    q = broadcaster.subscribe(match_id)
+
+    async def gen():
+        try:
+            while True:
+                try:
+                    point = await asyncio.wait_for(q.get(), timeout=30)
+                    yield f"data: {json.dumps(point, default=_json_default)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            broadcaster.unsubscribe(match_id, q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 POINT_COLUMNS = """
     set_number, game_number, point_number, server, score_before,

@@ -4,6 +4,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from database import AsyncSessionLocal
 from scrapers.atp_rankings import scrape_atp_rankings
+from scrapers.ibm.poller import check_live_matches
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
@@ -18,6 +19,13 @@ def start_scheduler():
         scrape_atp_rankings_job,
         CronTrigger(day_of_week="mon", hour=6, minute=0),
         id="atp_rankings_weekly",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        check_live_matches,
+        "interval",
+        minutes=5,
+        id="check_live_matches",
         replace_existing=True,
     )
     scheduler.start()
