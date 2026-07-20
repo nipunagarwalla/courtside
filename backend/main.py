@@ -6,15 +6,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from routers import players, rankings, tournaments, matches, compare, point_by_point, live as live_router
+from routers import players, rankings, tournaments, matches, compare, point_by_point, live as live_router, predictions
 from scheduler import start_scheduler, stop_scheduler
 from live import broadcaster, live_manager
+from ml.predict import MatchPredictor
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.broadcaster = broadcaster
     app.state.live_manager = live_manager
-    start_scheduler()
+    try:
+        app.state.predictor = MatchPredictor()
+        print("ML predictor loaded")
+    except FileNotFoundError:
+        app.state.predictor = None
+        print("ML model not trained yet — prediction endpoints return 503")
+    start_scheduler(app)
     yield
     await live_manager.stop_all()
     stop_scheduler()
@@ -35,6 +42,7 @@ app.include_router(matches.router, prefix="/api")
 app.include_router(compare.router, prefix="/api")
 app.include_router(point_by_point.router, prefix="/api")
 app.include_router(live_router.router, prefix="/api")
+app.include_router(predictions.router, prefix="/api")
 
 @app.get("/health")
 async def health():

@@ -14,7 +14,27 @@ async def scrape_atp_rankings_job():
         await scrape_atp_rankings(db)
 
 
-def start_scheduler():
+def make_monthly_retrain_job(app):
+    async def run_monthly_retrain():
+        import asyncio
+        import sys
+
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "ml.train",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await proc.communicate()
+        print("Retrain output:", stdout.decode()[-500:])
+        if proc.returncode == 0 and app is not None:
+            from ml.predict import MatchPredictor
+            app.state.predictor = MatchPredictor()
+            print("Predictor reloaded after retrain")
+
+    return run_monthly_retrain
+
+
+def start_scheduler(app=None):
     scheduler.add_job(
         scrape_atp_rankings_job,
         CronTrigger(day_of_week="mon", hour=6, minute=0),
@@ -26,6 +46,12 @@ def start_scheduler():
         "interval",
         minutes=5,
         id="check_live_matches",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        make_monthly_retrain_job(app),
+        CronTrigger(day=1, hour=2, minute=0),
+        id="ml_monthly_retrain",
         replace_existing=True,
     )
     scheduler.start()

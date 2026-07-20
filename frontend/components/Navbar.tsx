@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/tournaments", label: "Tournaments" },
   { href: "/players", label: "Players" },
   { href: "/compare", label: "Compare" },
+  { href: "/predictions", label: "Predictions" },
   { href: "/live", label: "Live" },
 ];
 

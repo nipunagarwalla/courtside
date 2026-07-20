@@ -301,4 +301,56 @@ export interface LiveMatch {
 
 export const getLive = () => get<LiveMatch[]>("/api/live");
 
+export interface PredictionPlayer {
+  id: string;
+  name: string;
+  country: string | null;
+  current_rank: number | null;
+}
+
+export interface Prediction {
+  p1_win_probability: number;
+  p2_win_probability: number;
+  confidence: "High" | "Moderate" | "Toss-up";
+  key_factors: { factor: string; importance: number }[];
+}
+
+export interface PredictResponse {
+  p1: PredictionPlayer;
+  p2: PredictionPlayer;
+  prediction: Prediction;
+  context: {
+    h2h_p1_wins: number;
+    h2h_p2_wins: number;
+    p1_surface_winrate: number | null;
+    p2_surface_winrate: number | null;
+    p1_form_last10: string[];
+    p2_form_last10: string[];
+  };
+}
+
+export interface UpcomingPrediction {
+  match_id: string;
+  match_date: string;
+  tournament: string | null;
+  tier: string | null;
+  round: string | null;
+  surface: string | null;
+  p1: PredictionPlayer;
+  p2: PredictionPlayer;
+  prediction: Prediction;
+}
+
+export const getPredict = (
+  p1: string, p2: string, surface: string, tier: string, round: string
+) =>
+  get<PredictResponse>(
+    `/api/predict?p1=${encodeURIComponent(p1)}&p2=${encodeURIComponent(p2)}` +
+    `&surface=${encodeURIComponent(surface)}&tier=${encodeURIComponent(tier)}` +
+    `&round=${encodeURIComponent(round)}`
+  );
+
+export const getUpcomingPredictions = () =>
+  get<UpcomingPrediction[]>("/api/predictions/upcoming");
+
 export const API_URL = API;

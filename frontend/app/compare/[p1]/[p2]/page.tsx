@@ -10,6 +10,7 @@ import SurfaceBadge from "@/components/SurfaceBadge";
 import TierBadge from "@/components/TierBadge";
 import FormPills from "@/components/FormPills";
 import StatBar from "@/components/StatBar";
+import PredictionSection from "@/components/PredictionSection";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -234,6 +235,25 @@ export default function CompareResultPage({
             p1value={serve1.bp_save_pct} p2value={serve2.bp_save_pct} format={pctFmt} />
         </div>
       </Section>
+
+      {/* Match prediction (between stat battle and meetings list) */}
+      <PredictionSection
+        p1={player1.id}
+        p2={player2.id}
+        p1Name={player1.name}
+        p2Name={player2.name}
+        defaultSurface={(() => {
+          const counts: Record<string, number> = {};
+          for (const m of data.h2h_matches) {
+            const s = m.surface;
+            if (s === "Hard" || s === "Clay" || s === "Grass")
+              counts[s] = (counts[s] ?? 0) + 1;
+          }
+          return (
+            Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Hard"
+          );
+        })()}
+      />
 
       {/* 7 — H2H match list */}
       <Section title={`All Meetings (${data.h2h_matches.length})`}>
