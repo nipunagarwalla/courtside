@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import SurfaceBadge from "@/components/SurfaceBadge";
 import TierBadge from "@/components/TierBadge";
+import MatchReplay from "@/components/MatchReplay";
 
 type PointsState = "idle" | "loading" | "loaded" | "unavailable";
 
@@ -72,37 +73,12 @@ function PointsSection({
       )}
 
       {pointsState === "loaded" && points && (
-        <div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 text-left text-xs uppercase tracking-wide text-zinc-400">
-                <th className="px-3 py-2">Set</th>
-                <th className="px-3 py-2 text-center">{winnerName ?? "P1"}</th>
-                <th className="px-3 py-2 text-center">{loserName ?? "P2"}</th>
-                <th className="px-3 py-2 text-right">Points</th>
-              </tr>
-            </thead>
-            <tbody>
-              {points.sets.map((s) => (
-                <tr key={s.set_number} className="border-b border-zinc-800 last:border-0">
-                  <td className="px-3 py-2 font-semibold">Set {s.set_number}</td>
-                  <td className="px-3 py-2 text-center tabular-nums">{s.p1_games}</td>
-                  <td className="px-3 py-2 text-center tabular-nums">{s.p2_games}</td>
-                  <td className="px-3 py-2 text-right text-zinc-400">
-                    {s.games.reduce((n, g) => n + g.points.length, 0)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="mt-4 text-center text-sm text-zinc-500">
-            {points.sets.reduce(
-              (n, s) => n + s.games.reduce((m, g) => m + g.points.length, 0),
-              0
-            )}{" "}
-            points loaded — full replay UI coming in Prompt 7
-          </p>
-        </div>
+        <MatchReplay
+          matchId={matchId}
+          player1Name={winnerName ?? "Player 1"}
+          player2Name={loserName ?? "Player 2"}
+          data={points}
+        />
       )}
     </section>
   );
