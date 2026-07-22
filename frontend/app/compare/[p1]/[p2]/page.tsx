@@ -1,16 +1,12 @@
-"use client";
-
 import Link from "next/link";
-import { use } from "react";
-import { useRouter } from "next/navigation";
-import useSWR from "swr";
-import { getCompare, type H2HBucket } from "@/lib/api";
+import { getCompare, type CompareResult, type H2HBucket } from "@/lib/api";
 import { countryFlag } from "@/lib/flags";
 import SurfaceBadge from "@/components/SurfaceBadge";
 import TierBadge from "@/components/TierBadge";
 import FormPills from "@/components/FormPills";
 import StatBar from "@/components/StatBar";
 import PredictionSection from "@/components/PredictionSection";
+import H2HMatchList from "./H2HMatchList";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -52,18 +48,26 @@ function BucketRow({
   );
 }
 
-export default function CompareResultPage({
+function mostCommonSurface(data: CompareResult): string {
+  const counts: Record<string, number> = {};
+  for (const m of data.h2h_matches) {
+    const s = m.surface;
+    if (s === "Hard" || s === "Clay" || s === "Grass") counts[s] = (counts[s] ?? 0) + 1;
+  }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Hard";
+}
+
+export default async function CompareResultPage({
   params,
 }: {
   params: Promise<{ p1: string; p2: string }>;
 }) {
-  const { p1, p2 } = use(params);
-  const router = useRouter();
-  const { data, error, isLoading } = useSWR(`compare-${p1}-${p2}`, () =>
-    getCompare(p1, p2)
-  );
+  const { p1, p2 } = await params;
 
-  if (error)
+  let data: CompareResult;
+  try {
+    data = await getCompare(p1, p2);
+  } catch {
     return (
       <main className="mx-auto max-w-4xl px-4 py-10">
         <p className="text-red-400">
@@ -74,15 +78,7 @@ export default function CompareResultPage({
         </Link>
       </main>
     );
-
-  if (isLoading || !data)
-    return (
-      <main className="mx-auto max-w-4xl px-4 py-10">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="mt-6 h-40 animate-pulse rounded-xl bg-zinc-900" />
-        ))}
-      </main>
-    );
+  }
 
   const { player1, player2, h2h } = data;
   const p1Pct = h2h.total_matches ? (h2h.p1_wins / h2h.total_matches) * 100 : 50;
@@ -242,53 +238,12 @@ export default function CompareResultPage({
         p2={player2.id}
         p1Name={player1.name}
         p2Name={player2.name}
-        defaultSurface={(() => {
-          const counts: Record<string, number> = {};
-          for (const m of data.h2h_matches) {
-            const s = m.surface;
-            if (s === "Hard" || s === "Clay" || s === "Grass")
-              counts[s] = (counts[s] ?? 0) + 1;
-          }
-          return (
-            Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Hard"
-          );
-        })()}
+        defaultSurface={mostCommonSurface(data)}
       />
 
       {/* 7 — H2H match list */}
       <Section title={`All Meetings (${data.h2h_matches.length})`}>
-        <div className="max-h-96 overflow-y-auto">
-          <table className="w-full text-sm">
-            <tbody>
-              {data.h2h_matches.map((m) => {
-                const winner = m.p1_won ? player1 : player2;
-                const loser = m.p1_won ? player2 : player1;
-                return (
-                  <tr
-                    key={m.match_id}
-                    onClick={() => router.push(`/matches/${m.match_id}`)}
-                    className="cursor-pointer border-b border-zinc-800 last:border-0 hover:bg-zinc-800"
-                  >
-                    <td className="px-2 py-3 text-zinc-400">{m.match_date ?? "—"}</td>
-                    <td className="px-2 py-3">
-                      <span className="mr-2">{m.tournament_name ?? "—"}</span>
-                      <TierBadge tier={m.tier} />
-                    </td>
-                    <td className="px-2 py-3">
-                      <SurfaceBadge surface={m.surface} />
-                    </td>
-                    <td className="px-2 py-3 text-zinc-400">{m.round ?? "—"}</td>
-                    <td className="px-2 py-3 text-zinc-300">{m.score ?? "—"}</td>
-                    <td className="px-2 py-3">
-                      <span className="font-bold">{winner.name}</span>
-                      <span className="text-zinc-500"> d. {loser.name}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <H2HMatchList matches={data.h2h_matches} player1={player1} player2={player2} />
       </Section>
     </main>
   );

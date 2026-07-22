@@ -1,12 +1,7 @@
-"use client";
-
 import Link from "next/link";
-import { use } from "react";
-import { useRouter } from "next/navigation";
-import useSWR from "swr";
-import { getPlayer } from "@/lib/api";
+import { getPlayer, type PlayerDetail } from "@/lib/api";
 import { countryFlag } from "@/lib/flags";
-import WLBadge from "@/components/WLBadge";
+import RecentMatches from "./RecentMatches";
 
 function pct(v: number | null): string {
   return v != null ? `${(v * 100).toFixed(1)}%` : "—";
@@ -21,16 +16,17 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export default function PlayerPage({
+export default async function PlayerPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = use(params);
-  const router = useRouter();
-  const { data: player, error, isLoading } = useSWR(`player-${id}`, () => getPlayer(id));
+  const { id } = await params;
 
-  if (error)
+  let player: PlayerDetail;
+  try {
+    player = await getPlayer(id);
+  } catch {
     return (
       <main className="mx-auto max-w-4xl px-4 py-10">
         <p className="text-red-400">Player not found.</p>
@@ -39,18 +35,7 @@ export default function PlayerPage({
         </Link>
       </main>
     );
-
-  if (isLoading || !player)
-    return (
-      <main className="mx-auto max-w-4xl px-4 py-10">
-        <div className="h-10 w-72 animate-pulse rounded bg-zinc-800" />
-        <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-lg bg-zinc-900" />
-          ))}
-        </div>
-      </main>
-    );
+  }
 
   const record = (w: number | null, l: number | null) =>
     w == null && l == null ? null : `${w ?? 0}–${l ?? 0}`;
@@ -126,46 +111,7 @@ export default function PlayerPage({
 
       <section className="mt-10">
         <h2 className="mb-3 text-lg font-semibold text-zinc-300">Recent Matches</h2>
-        <div className="overflow-x-auto rounded-xl border border-zinc-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900 text-left text-xs uppercase tracking-wide text-zinc-400">
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Tournament</th>
-                <th className="px-4 py-3">Round</th>
-                <th className="px-4 py-3">Opponent</th>
-                <th className="px-4 py-3">Score</th>
-                <th className="px-4 py-3">W/L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {player.recent_matches.map((m) => (
-                <tr
-                  key={m.match_id}
-                  onClick={() => router.push(`/matches/${m.match_id}`)}
-                  className="cursor-pointer border-b border-zinc-800 last:border-0 hover:bg-zinc-900"
-                >
-                  <td className="px-4 py-3 text-zinc-400">{m.match_date ?? "—"}</td>
-                  <td className="px-4 py-3">{m.tournament ?? "—"}</td>
-                  <td className="px-4 py-3 text-zinc-400">{m.round ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/players/${m.opponent_id}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-blue-400 hover:underline"
-                    >
-                      {m.opponent_name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-zinc-300">{m.score ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <WLBadge result={m.result} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RecentMatches matches={player.recent_matches} />
       </section>
     </main>
   );
