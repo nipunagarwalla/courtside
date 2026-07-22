@@ -1,9 +1,13 @@
 """APScheduler setup for recurring background jobs."""
+from datetime import datetime, timezone
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from database import AsyncSessionLocal
-from scrapers.atp_rankings import scrape_atp_rankings
+from scrapers.atp_rankings import scrape_atp_rankings, scrape_ranking_points
+from scrapers.atp_schedule import scrape_atp_calendar
+from scrapers.atp_live import refresh_atp_live
 from scrapers.ibm.poller import check_live_matches
 
 scheduler = AsyncIOScheduler(timezone="UTC")
@@ -11,7 +15,13 @@ scheduler = AsyncIOScheduler(timezone="UTC")
 
 async def scrape_atp_rankings_job():
     async with AsyncSessionLocal() as db:
-        await scrape_atp_rankings(db)
+        await scrape_ranking_points(db)  # authoritative rank + points
+        await scrape_atp_rankings(db)    # per-player enrichment
+
+
+async def refresh_calendar_job():
+    async with AsyncSessionLocal() as db:
+        await scrape_atp_calendar(db)
 
 
 def make_monthly_retrain_job(app):
@@ -46,6 +56,20 @@ def start_scheduler(app=None):
         "interval",
         minutes=5,
         id="check_live_matches",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        refresh_atp_live,
+        "interval",
+        minutes=5,
+        id="refresh_atp_live",
+        replace_existing=True,
+        next_run_time=datetime.now(timezone.utc),  # populate immediately on startup
+    )
+    scheduler.add_job(
+        refresh_calendar_job,
+        CronTrigger(hour=3, minute=30),
+        id="refresh_atp_calendar",
         replace_existing=True,
     )
     scheduler.add_job(

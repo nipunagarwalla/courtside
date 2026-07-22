@@ -3,15 +3,20 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from live import live_manager
+from live import live_manager, atp_live
 
 router = APIRouter(tags=["live"])
 
 
 @router.get("/live")
 async def list_live_matches(db: AsyncSession = Depends(get_db)):
-    """Currently live matches with score. Empty outside tournament windows."""
-    live = []
+    """Currently live matches with score. Empty outside tournament windows.
+
+    Combines two sources: the ATP live-matches gateway (all tour singles in
+    progress, refreshed every 5 min) and any IBM point-by-point poll tasks
+    running during Grand Slams.
+    """
+    live = list(atp_live["matches"])
     for key in live_manager.active():
         # key format: {tournament_key}_{year}_{ibm_match_id}
         try:

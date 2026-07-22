@@ -10,10 +10,12 @@ loaded from TennisMyLife, and is used directly in the hero API URL.
 """
 import argparse
 import asyncio
+import re
 import time
 from datetime import date, datetime
 
 import requests
+from bs4 import BeautifulSoup
 from sqlalchemy import text
 
 HEADERS = {
@@ -22,10 +24,91 @@ HEADERS = {
     "Accept": "application/json",
 }
 
+# The hero API (per-player enrichment) does NOT expose ranking points, so the
+# authoritative rank+points come from the SSR'd rankings table page instead.
+RANKINGS_URL = "https://www.atptour.com/en/rankings/singles?rankRange=1-2000"
+RANKINGS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://www.atptour.com/",
+    "Accept": "text/html,application/xhtml+xml",
+}
+_PLAYER_ID_RE = re.compile(r"/players/[^/]+/([a-z0-9]{3,4})/")
+
 REQUEST_DELAY_S = 0.5  # be polite — 0.5s between requests
 
 _session = requests.Session()
 _session.headers.update(HEADERS)
+
+
+UPSERT_RANK_POINTS = text("""
+    INSERT INTO rankings (player_id, tour, rank, points, ranking_type, week_date)
+    VALUES (:player_id, 'atp', :rank, :points, 'standard', :week_date)
+    ON CONFLICT (player_id, week_date, ranking_type)
+    DO UPDATE SET rank = EXCLUDED.rank, points = EXCLUDED.points
+""")
+
+
+def fetch_ranking_rows() -> list[tuple[int, str, int | None]]:
+    """Scrape the ATP singles rankings page -> [(rank, player_id, points)].
+
+    player_id is uppercased to match our DB convention. Deduped by id.
+    """
+    r = requests.get(RANKINGS_URL, headers=RANKINGS_HEADERS, timeout=30)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "lxml")
+
+    # The page renders two rows per player (a desktop table and a wider mobile
+    # table with extra columns), so select cells by CSS class rather than by
+    # position — `td.rank` and `td.points` are correct in both variants.
+    def cell_int(tr, cls):
+        td = tr.select_one(f"td.{cls}")
+        if not td:
+            return None
+        try:
+            return int(td.get_text(strip=True).replace(",", ""))
+        except ValueError:
+            return None
+
+    seen: dict[str, tuple[int, int | None]] = {}
+    for tr in soup.select("tr"):
+        link = tr.select_one('a[href*="/players/"]')
+        if not link:
+            continue
+        m = _PLAYER_ID_RE.search(link.get("href", ""))
+        if not m:
+            continue
+        rank = cell_int(tr, "rank")
+        if rank is None:
+            continue
+        seen[m.group(1).upper()] = (rank, cell_int(tr, "points"))
+    return [(rank, pid, points) for pid, (rank, points) in seen.items()]
+
+
+async def scrape_ranking_points(db) -> int:
+    """Populate current rank + points for all ranked players from the ATP
+    rankings page. This is the authoritative source for points; run it before
+    (or instead of) the per-player hero enrichment."""
+    try:
+        rows = await asyncio.to_thread(fetch_ranking_rows)
+    except Exception as e:
+        print(f"Failed to fetch ATP rankings page: {e}")
+        return 0
+
+    known = {r[0] for r in await db.execute(text("SELECT id FROM players"))}
+    today = date.today()
+    updated = 0
+    for rank, pid, points in rows:
+        if pid not in known:
+            continue  # FK: skip players not in our table (juniors, etc.)
+        await db.execute(UPSERT_RANK_POINTS, {
+            "player_id": pid, "rank": rank, "points": points, "week_date": today,
+        })
+        updated += 1
+    await db.commit()
+    print(f"Ranking points: updated {updated}/{len(rows)} ranked players "
+          f"(week_date={today})")
+    return updated
 
 
 def fetch_player_hero(atp_id: str, retries: int = 2) -> dict | None:
@@ -160,22 +243,28 @@ async def scrape_atp_rankings(db, active_within_days: int | None = 365, limit: i
 
 
 async def _main():
-    parser = argparse.ArgumentParser(description="Scrape ATP hero API")
+    parser = argparse.ArgumentParser(description="Scrape ATP rankings + hero API")
     parser.add_argument("--all", action="store_true",
                         help="scrape every player, not just recently active ones")
     parser.add_argument("--days", type=int, default=365,
                         help="activity window in days (default 365)")
     parser.add_argument("--limit", type=int, default=None,
                         help="max players to scrape (for testing)")
+    parser.add_argument("--points-only", action="store_true",
+                        help="only refresh rank+points from the rankings page "
+                             "(skip the slow per-player hero enrichment)")
     args = parser.parse_args()
 
     from database import AsyncSessionLocal, engine
     async with AsyncSessionLocal() as db:
-        await scrape_atp_rankings(
-            db,
-            active_within_days=None if args.all else args.days,
-            limit=args.limit,
-        )
+        # Authoritative rank+points first, then per-player enrichment.
+        await scrape_ranking_points(db)
+        if not args.points_only:
+            await scrape_atp_rankings(
+                db,
+                active_within_days=None if args.all else args.days,
+                limit=args.limit,
+            )
     await engine.dispose()
 
 
