@@ -6,6 +6,7 @@ summary in memory for the /api/live endpoint. No point-by-point stream —
 just who is live and the current score.
 """
 import asyncio
+import time
 
 import requests
 from sqlalchemy import text
@@ -21,6 +22,9 @@ HEADERS = {
     "Origin": "https://www.atptour.com",
     "Accept": "application/json",
 }
+
+_session = requests.Session()
+_session.headers.update(HEADERS)
 
 
 def _to_int(v):
@@ -83,22 +87,31 @@ def parse_live(payload: dict) -> list[dict]:
     return matches
 
 
-def fetch_live() -> list[dict]:
-    r = requests.get(LIVE_URL, headers=HEADERS, timeout=15)
-    r.raise_for_status()
-    return parse_live(r.json())
+def fetch_live(retries: int = 2) -> list[dict]:
+    """Fetch + parse live matches. The gateway occasionally serves a transient
+    403 (Cloudflare), so retry a couple of times before giving up."""
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            r = _session.get(LIVE_URL, timeout=15)
+            if r.status_code == 200:
+                return parse_live(r.json())
+            last = f"HTTP {r.status_code}"
+        except Exception as e:
+            last = f"{type(e).__name__}: {e}"
+        if attempt < retries:
+            time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"livematches gateway failed after {retries + 1} tries ({last})")
 
 
-async def refresh_atp_live() -> int:
-    """Fetch live matches, enrich surface from the tournaments table, cache them."""
+async def _enrich_surface(matches: list[dict]) -> None:
+    """Fill each match's surface from the tournaments table. Best-effort:
+    live match data does not depend on the DB, so a DB outage must not drop
+    the matches — we just leave surface as None."""
+    ids = {m["tournament_id"] for m in matches if m["tournament_id"]}
+    if not ids:
+        return
     try:
-        matches = await asyncio.to_thread(fetch_live)
-    except Exception as e:
-        print(f"ATP live poll error: {e}")
-        return 0
-
-    if matches:
-        ids = {m["tournament_id"] for m in matches if m["tournament_id"]}
         async with AsyncSessionLocal() as db:
             rows = await db.execute(
                 text("SELECT id, surface FROM tournaments WHERE id = ANY(:ids)"),
@@ -107,7 +120,23 @@ async def refresh_atp_live() -> int:
             surface_by_id = {r.id: r.surface for r in rows}
         for m in matches:
             m["surface"] = surface_by_id.get(m["tournament_id"])
+    except Exception as e:
+        print(f"ATP live: surface lookup skipped (DB unavailable): "
+              f"{type(e).__name__}")
 
-    atp_live["matches"] = matches
+
+async def refresh_atp_live() -> int:
+    """Fetch live matches, cache them, then best-effort enrich surface."""
+    try:
+        matches = await asyncio.to_thread(fetch_live)
+    except Exception as e:
+        # Keep the last-known snapshot on a transient fetch failure rather
+        # than blanking the live page for a whole poll cycle.
+        print(f"ATP live poll error: {e}")
+        return len(atp_live["matches"])
+
+    atp_live["matches"] = matches  # cache first — independent of the DB
+    if matches:
+        await _enrich_surface(matches)
     print(f"ATP live: {len(matches)} in-progress singles")
     return len(matches)

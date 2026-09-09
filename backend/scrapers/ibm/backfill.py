@@ -176,6 +176,10 @@ async def _main():
     args = parser.parse_args()
     draws = [int(d) for d in args.draws.split(",")]
     await backfill_tournament(args.tournament, args.year, draws)
+    # Standalone matches (created when TML lacks the tournament) carry only
+    # player names — resolve them to ids + dates so they show on profiles.
+    from .link_players import link
+    await link(f"ibm-{args.tournament}-{args.year}-")
     await engine.dispose()
 
 

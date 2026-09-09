@@ -71,18 +71,25 @@ def parse_calendar(payload: dict) -> list[dict]:
     rows = []
     for group in payload.get("TournamentDates") or []:
         for t in group.get("Tournaments") or []:
+            # The Type -> tier map is the gate: it already excludes team events
+            # (Type UC/DCR/LVR/WC). Do NOT also filter on EventType — Grand
+            # Slams carry EventType "GS", not "Tour", so that would drop them.
             tier = TIER_MAP.get(t.get("Type"))
-            if tier is None or t.get("EventType") != "Tour" or not t.get("SglDrawSize"):
-                continue  # skip team events (UC/DCR/LVR), challengers, ITF
+            if tier is None or not t.get("SglDrawSize"):
+                continue
             start, end = _parse_dates(t.get("FormattedDate") or "")
             if start is None:
                 continue
             location = t.get("Location") or ""
             city = location.split(",")[0].strip() or t.get("Name")
             country = location.split(",")[-1].strip() if "," in location else None
+            # Regular events carry a sponsor-prefixed Name ("EFG Swiss Open
+            # Gstaad") so the city is the cleaner label; Grand Slams have a
+            # clean Name ("US Open") and no meaningful single city.
+            name = (t.get("Name") or city) if tier == "Grand Slam" else city
             rows.append({
                 "id": f"{start.year}-{t['Id']}",
-                "name": city,
+                "name": name,
                 "year": start.year,
                 "surface": t.get("Surface"),
                 "tier": tier,
